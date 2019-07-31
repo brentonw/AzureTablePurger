@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.WindowsAzure.Storage.Table;
@@ -20,6 +21,7 @@ namespace AzureTablePurger
     class ParallelTablePurger : TablePurgerBase
     {
         private const int MaxParallelOperations = 32;
+        public const int ConnectionLimit = 32;
 
         private const string TempDataFileDirectory = "AzureTablePurgerTempData";
 
@@ -30,6 +32,11 @@ namespace AzureTablePurger
         private int _globalPartitionCounter = 0;
 
         private CancellationTokenSource _cancellationTokenSource;
+
+        public ParallelTablePurger()
+        {
+            ServicePointManager.DefaultConnectionLimit = ConnectionLimit;
+        }
 
         public override void PurgeEntities(out int numEntitiesProcessed, out int numPartitionsProcessed)
         {
@@ -109,17 +116,11 @@ namespace AzureTablePurger
 
                 using (var streamWriter = GetStreamWriterForPartitionTempFile(partitionKey))
                 {
-                    string lastLineWritten = null;
                     foreach (var entity in partition)
                     {
                         var lineToWrite = $"{entity.PartitionKey},{entity.RowKey}";
-                        if (lineToWrite == lastLineWritten)
-                        {
-                            ConsoleHelper.WriteLineWithColor("Error: we just wrote the same line again into a file", ConsoleColor.Red);
-                        }
 
                         streamWriter.WriteLine(lineToWrite);
-                        lastLineWritten = lineToWrite;
                         Interlocked.Increment(ref _globalEntityCounter);
                     }
                 }
@@ -138,7 +139,7 @@ namespace AzureTablePurger
         /// <summary>
         /// Process a specific partition.
         ///
-        /// Reads all entity keys from temp file on disk, 
+        /// Reads all entity keys from temp file on disk
         /// </summary>
         private void ProcessPartition(string partitionKeyForPartition)
         {
