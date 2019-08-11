@@ -1,14 +1,8 @@
-﻿using AzureTablePurger.Enums;
-
-namespace AzureTablePurger
+﻿namespace AzureTablePurger
 {
-    interface ITablePurger
+    public interface ITablePurger
     {
-        bool IsInitialized { get; }
-
-        void Initialize(string storageAccountConnectionString, string tableName,
-            IPartitionKeyHandler partitionKeyHandler, PartitionKeyFormat partitionKeyFormat,
-            int purgeEntitiesOlderThanDays);
+        void Initialize(string storageAccountConnectionString, string tableName, IPartitionKeyHandler partitionKeyHandler, int purgeEntitiesOlderThanDays);
 
         void PurgeEntities(out int numEntitiesProcessed, out int numPartitionsProcessed);
     }

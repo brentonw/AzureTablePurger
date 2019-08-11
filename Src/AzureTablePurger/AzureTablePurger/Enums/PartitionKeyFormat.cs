@@ -1,6 +1,6 @@
 ﻿namespace AzureTablePurger.Enums
 {
-    enum PartitionKeyFormat
+    public enum PartitionKeyFormat
     {
         TicksAscendingWithLeadingZero
     }

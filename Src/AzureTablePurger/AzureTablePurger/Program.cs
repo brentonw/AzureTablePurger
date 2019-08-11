@@ -2,29 +2,16 @@
 using System.Configuration;
 using System.Diagnostics;
 using AzureTablePurger.Enums;
+using Serilog;
 
 namespace AzureTablePurger
 {
     /// <summary>
     /// Command line utility to purge data from an Azure table.
     ///
-    /// 2 implementations provided:
+    /// Two implementations provided:
     /// - simple, synchronous implementation
-    /// - asynchronous and parallel processing implementation (currently active)
-    ///
-    /// The asynchronous implementation is a produce/consumer pattern: one task is querying Azure Table Storage, downloading
-    /// data and caching it locally on disk (potentially too much data to deal with in memory - we produce a lot faster than
-    /// we're able to consume). Another task is picking up items from the in-memory queue in parallel and processing them.
-    /// Processing involves reading the cached data from disk, creating batch operations and dispatching them to Azure Table
-    /// Storage.
-    ///
-    /// Some references:
-    /// https://stackoverflow.com/questions/12712117/how-to-post-results-of-parallel-foreach-to-a-queue-which-is-continually-read-in
-    /// https://blogs.msdn.microsoft.com/pfxteam/2010/04/06/parallelextensionsextras-tour-4-blockingcollectionextensions/
-    /// 
-    /// https://stackoverflow.com/questions/154551/volatile-vs-interlocked-vs-lock
-    /// https://stackoverflow.com/questions/16170915/best-practice-in-deleting-azure-table-entities-in-foreach-loop
-    /// https://stackoverflow.com/questions/3724232/parallel-invoke-exception-handling
+    /// - parallel processing implementation (default)
     /// </summary>
     class Program
     {
@@ -34,8 +21,12 @@ namespace AzureTablePurger
         public const string PartitionKeyFormatConfigKey = "PartitionKeyFormat";
         public const string OperationModeConfigKey = "OperationMode";
 
+        private static ILogger _logger;
+
         static void Main(string[] args)
         {
+            InitializeLogger();
+
             var connectionString = GetRequiredConfigSetting(StorageConnectionConfigKey);
             var tableName = GetRequiredConfigSetting(TableNameConfigKey);
             var purgeRecordsOlderThanDays = GetRequiredConfigSettingAsInt(PurgeRecordsOlderThanDaysConfigKey);
@@ -44,11 +35,11 @@ namespace AzureTablePurger
 
             var partitionKeyHandler = CreatePartitionKeyHandler(partitionKeyFormat);
             var tablePurger = CreateTablePurger(operationMode);
-            tablePurger.Initialize(connectionString, tableName, partitionKeyHandler, partitionKeyFormat, purgeRecordsOlderThanDays);
+            tablePurger.Initialize(connectionString, tableName, partitionKeyHandler, purgeRecordsOlderThanDays);
 
             var sw = new Stopwatch();
             sw.Start();
-            ConsoleHelper.WriteLineWithColor("Starting...", ConsoleColor.Green);
+            _logger.Information("Starting: tableName={tableName}, purgeRecordsOlderThanDays={purgeRecordsOlderThanDays}, operationMode={operationMode}...", tableName, purgeRecordsOlderThanDays, operationMode);
 
             int numEntitiesProcessed = 0;
             int numPartitionsProcessed = 0;
@@ -56,10 +47,21 @@ namespace AzureTablePurger
             tablePurger.PurgeEntities(out numEntitiesProcessed, out numPartitionsProcessed);
 
             sw.Stop();
-            var averageTimePerEntityInMs = sw.ElapsedMilliseconds / numEntitiesProcessed;
+            double averageTimePerEntityInMs = sw.ElapsedMilliseconds / (double)numEntitiesProcessed;
 
-            Console.WriteLine();
-            ConsoleHelper.WriteLineWithColor($"Finished processing {numEntitiesProcessed} entities across {numPartitionsProcessed} partitions in {sw.Elapsed}. Average time per entity {averageTimePerEntityInMs}ms", ConsoleColor.Green);
+            _logger.Information($"Finished processing {numEntitiesProcessed} entities across {numPartitionsProcessed} partitions in {sw.Elapsed}. Average time per entity {averageTimePerEntityInMs:0.##}ms");
+            Console.ResetColor();
+            Console.WriteLine("Press any key to exit");
+            Console.ReadKey();
+        }
+
+        private static void InitializeLogger()
+        {
+            Log.Logger = new LoggerConfiguration()
+                .WriteTo.Console()
+                .CreateLogger();
+
+            _logger = Log.Logger;
         }
 
         private static IPartitionKeyHandler CreatePartitionKeyHandler(PartitionKeyFormat partitionKeyFormat)
@@ -78,9 +80,9 @@ namespace AzureTablePurger
             switch (operationMode)
             {
                 case OperationMode.Simple:
-                    return new SimpleTablePurger();
+                    return new SimpleTablePurger(_logger);
                 case OperationMode.Parallel:
-                    return new ParallelTablePurger();
+                    return new ParallelTablePurger(_logger);
                 default:
                     throw new ArgumentOutOfRangeException(nameof(operationMode), operationMode, null);
             }

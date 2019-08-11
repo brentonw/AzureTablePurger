@@ -7,18 +7,24 @@ using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.WindowsAzure.Storage.Table;
+using Serilog;
 
 namespace AzureTablePurger
 {
     /// <summary>
     /// Purges entities from an Azure table older than a specified number of days.
     ///
-    /// Executes in a parallel using a producer/consumer pattern: one task is querying Azure Table Storage, downloading
-    /// data and caching it locally on disk (since there is potentially too much data to deal with in memory, and we produce
-    /// a lot faster than we can consume). Another task is picking up items from the in-memory queue in parallel and processing them.
-    /// Processing involves reading the cached data from disk, creating batch delete commands and dispatching them to Azure Table Storage.
+    /// Executes in a parallel using a producer/consumer pattern.
+    ///
+    /// One task is querying Azure Table Storage, downloading data and caching it locally on disk (since there is
+    /// potentially too much data to deal with in memory, and depending on the partitioning of the data returned,
+    /// we could produce a lot faster than we can consume).
+    ///
+    /// Another task is picking up items from the in-memory queue in parallel and processing them. Processing
+    /// involves reading the cached data from disk, creating batch delete commands and dispatching them to
+    /// Azure Table Storage.
     /// </summary>
-    class ParallelTablePurger : TablePurgerBase
+    public class ParallelTablePurger : TablePurgerBase
     {
         private const int MaxParallelOperations = 32;
         public const int ConnectionLimit = 32;
@@ -26,20 +32,22 @@ namespace AzureTablePurger
         private const string TempDataFileDirectory = "AzureTablePurgerTempData";
 
         private readonly BlockingCollection<string> _partitionKeyQueue = new BlockingCollection<string>();
-        private readonly HashSet<string> _partitionKeysAlreadyQueued = new HashSet<string>();
 
         private int _globalEntityCounter = 0;
         private int _globalPartitionCounter = 0;
 
         private CancellationTokenSource _cancellationTokenSource;
 
-        public ParallelTablePurger()
+        public ParallelTablePurger(ILogger logger)
+            : base(logger)
         {
             ServicePointManager.DefaultConnectionLimit = ConnectionLimit;
         }
 
         public override void PurgeEntities(out int numEntitiesProcessed, out int numPartitionsProcessed)
         {
+            VerifyIsInitialized();
+
             void CollectData()
             {
                 CollectDataToProcess(PurgeEntitiesOlderThanDays);
@@ -57,7 +65,6 @@ namespace AzureTablePurger
             numPartitionsProcessed = _globalPartitionCounter;
             numEntitiesProcessed = _globalEntityCounter;
         }
-
         
         /// <summary>
         /// Data collection step (ie producer).
@@ -68,24 +75,60 @@ namespace AzureTablePurger
         {
             var query = PartitionKeyHandler.GetTableQuery(purgeRecordsOlderThanDays);
             var continuationToken = new TableContinuationToken();
+            string previouslyCachedPartitionKey = null;
 
             try
             {
-                // Collect data
                 do
                 {
                     var page = TableReference.ExecuteQuerySegmented(query, continuationToken);
+
+                    if (page.Results.Count == 0)
+                    {
+                        Logger.Information("No results available");
+                        break;
+                    }
+
                     var firstResultTimestamp = PartitionKeyHandler.ConvertPartitionKeyToDateTime(page.Results.First().PartitionKey);
+                    LogStartingToProcessPage(page, firstResultTimestamp);
 
-                    WriteStartingToProcessPage(page, firstResultTimestamp);
+                    _cancellationTokenSource.Token.ThrowIfCancellationRequested();
 
-                    PartitionPageAndQueueForProcessing(page.Results);
+                    var partitionsFromPage = GetPartitionsFromPage(page.Results);
+
+                    foreach (var partition in partitionsFromPage)
+                    {
+                        var partitionKey = partition.First().PartitionKey;
+
+                        if (!string.IsNullOrEmpty(previouslyCachedPartitionKey) && partitionKey != previouslyCachedPartitionKey)
+                        {
+                            // we've moved onto a new partitionKey, queue the one we previously cached
+                            QueuePartitionKeyForProcessing(previouslyCachedPartitionKey);
+                        }
+
+                        using (var streamWriter = GetStreamWriterForPartitionTempFile(partitionKey))
+                        {
+                            foreach (var entity in partition)
+                            {
+                                var lineToWrite = $"{entity.PartitionKey},{entity.RowKey}";
+
+                                streamWriter.WriteLine(lineToWrite);
+                                Interlocked.Increment(ref _globalEntityCounter);
+                            }
+                        }
+
+                        previouslyCachedPartitionKey = partitionKey;
+                    }
 
                     continuationToken = page.ContinuationToken;
-                    // TODO: temp for testing
-                    // continuationToken = null;
+
                 } while (continuationToken != null);
 
+                // queue the last partition we just processed
+                if (previouslyCachedPartitionKey != null)
+                {
+                    QueuePartitionKeyForProcessing(previouslyCachedPartitionKey);
+                }
             }
             finally
             {
@@ -93,110 +136,99 @@ namespace AzureTablePurger
             }
         }
 
-        /// <summary>
-        /// Partitions up a page of data, caches locally to a temp file and adds into 2 in-memory data structures:
-        ///
-        /// _partitionKeyQueue which is the queue that the consumer pulls from
-        ///
-        /// _partitionKeysAlreadyQueued keeps track of what we have already queued. We need this to handle situations where
-        /// data in a single partition spans multiple pages. After we process a given partition as part of a page of results,
-        /// we write the entity keys to a temp file and queue that PartitionKey for processing. It's possible that the next page
-        /// of data we get will have more data for the previous partition, so we open the file we just created and write more data
-        /// into it. At this point we don't want to re-queue that same PartitionKey for processing, since it's already queued up.
-        /// </summary>
-        private void PartitionPageAndQueueForProcessing(List<DynamicTableEntity> pageResults)
+        private void QueuePartitionKeyForProcessing(string partitionKey)
         {
-            _cancellationTokenSource.Token.ThrowIfCancellationRequested();
-
-            var partitionsFromPage = GetPartitionsFromPage(pageResults);
-
-            foreach (var partition in partitionsFromPage)
-            {
-                var partitionKey = partition.First().PartitionKey;
-
-                using (var streamWriter = GetStreamWriterForPartitionTempFile(partitionKey))
-                {
-                    foreach (var entity in partition)
-                    {
-                        var lineToWrite = $"{entity.PartitionKey},{entity.RowKey}";
-
-                        streamWriter.WriteLine(lineToWrite);
-                        Interlocked.Increment(ref _globalEntityCounter);
-                    }
-                }
-
-                if (!_partitionKeysAlreadyQueued.Contains(partitionKey))
-                {
-                    _partitionKeysAlreadyQueued.Add(partitionKey);
-                    _partitionKeyQueue.Add(partitionKey);
-
-                    Interlocked.Increment(ref _globalPartitionCounter);
-                    WriteProgressItemQueued();
-                }
-            }
+            _partitionKeyQueue.Add(partitionKey);
+            Interlocked.Increment(ref _globalPartitionCounter);
+            ConsoleLogProgressItemQueued();
         }
 
         /// <summary>
-        /// Process a specific partition.
-        ///
-        /// Reads all entity keys from temp file on disk
+        /// Consumer: process a specific partition.
         /// </summary>
         private void ProcessPartition(string partitionKeyForPartition)
         {
             try
             {
-                var allDataFromFile = GetDataFromPartitionTempFile(partitionKeyForPartition);
+                var fileContents = GetDataFromPartitionTempFile(partitionKeyForPartition);
 
-                var batchOperation = new TableBatchOperation();
+                var chunkedData = Chunk(fileContents, MaxBatchSize);
 
-                for (var index = 0; index < allDataFromFile.Length; index++)
+                foreach (var chunk in chunkedData)
                 {
-                    var line = allDataFromFile[index];
-                    var indexOfComma = line.IndexOf(',');
-                    var indexOfRowKeyStart = indexOfComma + 1;
-                    var partitionKeyForEntity = line.Substring(0, indexOfComma);
-                    var rowKeyForEntity = line.Substring(indexOfRowKeyStart, line.Length - indexOfRowKeyStart);
+                    var batchOperation = new TableBatchOperation();
 
-                    var entity = new DynamicTableEntity(partitionKeyForEntity, rowKeyForEntity) { ETag = "*" };
-
-                    batchOperation.Delete(entity);
-
-                    if (index % 100 == 0)
+                    foreach (var line in chunk)
                     {
-                        TableReference.ExecuteBatch(batchOperation);
-                        batchOperation = new TableBatchOperation();
-                    }
-                }
+                        string partitionKey = null;
+                        string rowKey = null;
 
-                if (batchOperation.Count > 0)
-                {
+                        try
+                        {
+                            ExtractRowAndPartitionKey(line, out partitionKey, out rowKey);
+                        }
+                        catch (InvalidOperationException e)
+                        {
+                            Logger.Error(e, e.Message);
+                            continue;
+                        }
+
+                        if (partitionKey != partitionKeyForPartition)
+                        {
+                            Logger.Error("PartitionKey doesn't match current partition we are processing, skipping. PartitionKey={partitionKey}, RowKey={rowKey}", partitionKey, rowKey);
+                            continue;
+                        }
+
+                        var entity = new DynamicTableEntity(partitionKey, rowKey) { ETag = "*" };
+
+                        batchOperation.Delete(entity);
+                    }
+
                     TableReference.ExecuteBatch(batchOperation);
                 }
 
                 DeletePartitionTempFile(partitionKeyForPartition);
-                _partitionKeysAlreadyQueued.Remove(partitionKeyForPartition);
 
-                WriteProgressItemProcessed();
+                ConsoleLogProgressItemProcessed();
             }
-            catch (Exception)
+            catch (Exception e)
             {
-                ConsoleHelper.WriteWithColor($"Error processing partition {partitionKeyForPartition}", ConsoleColor.Red);
+                Logger.Fatal(e, "Error processing partition {partitionKeyForPartition}", partitionKeyForPartition);
                 _cancellationTokenSource.Cancel();
                 throw;
             }
         }
 
-        private StreamWriter GetStreamWriterForPartitionTempFile(string entityPartitionKey)
+        private void ExtractRowAndPartitionKey(string line, out string partitionKey, out string rowKey)
         {
-            var tempFile = new FileInfo(GetPartitionTempFileFullPath(entityPartitionKey));
-            tempFile.Directory.Create();
+            var message = $"Line not in expected format: {line}";
 
-            return new StreamWriter(File.OpenWrite(tempFile.FullName));
+            if (string.IsNullOrEmpty(line))
+            {
+                throw new InvalidOperationException(message);
+            }
+
+            var results = line.Split(new []{','}, StringSplitOptions.RemoveEmptyEntries);
+
+            if (results.Length != 2)
+            {
+                throw new InvalidOperationException(message);
+            }
+
+            partitionKey = results[0];
+            rowKey = results[1];
         }
 
-        private string[] GetDataFromPartitionTempFile(string entityPartitionKey)
+        private StreamWriter GetStreamWriterForPartitionTempFile(string entityPartitionKey)
         {
-            return File.ReadAllLines(GetPartitionTempFileFullPath(entityPartitionKey));
+            Directory.CreateDirectory(TempDataFileDirectory);
+
+            return new StreamWriter(GetPartitionTempFileFullPath(entityPartitionKey), true);
+        }
+
+        private IEnumerable<string> GetDataFromPartitionTempFile(string entityPartitionKey)
+        {
+            return File.ReadLines(GetPartitionTempFileFullPath(entityPartitionKey));
         }
 
         private string GetPartitionTempFileFullPath(string entityPartitionKey)

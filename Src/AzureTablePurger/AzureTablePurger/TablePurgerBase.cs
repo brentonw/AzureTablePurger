@@ -1,13 +1,13 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using AzureTablePurger.Enums;
 using Microsoft.WindowsAzure.Storage;
 using Microsoft.WindowsAzure.Storage.Table;
+using Serilog;
 
 namespace AzureTablePurger
 {
-    abstract class TablePurgerBase : ITablePurger
+    public abstract class TablePurgerBase : ITablePurger
     {
         public const int MaxBatchSize = 100;
 
@@ -19,19 +19,22 @@ namespace AzureTablePurger
 
         public IPartitionKeyHandler PartitionKeyHandler { get; set; }
 
-        public PartitionKeyFormat PartitionKeyFormat { get; set; }
-
         public int PurgeEntitiesOlderThanDays { get; set; }
 
         public CloudTable TableReference { get; set; }
 
-        public void Initialize(string storageAccountConnectionString, string tableName, IPartitionKeyHandler partitionKeyHandler, PartitionKeyFormat partitionKeyFormat,
-            int purgeEntitiesOlderThanDays)
+        public ILogger Logger { get; set; }
+
+        protected TablePurgerBase(ILogger logger)
+        {
+            Logger = logger;
+        }
+
+        public void Initialize(string storageAccountConnectionString, string tableName, IPartitionKeyHandler partitionKeyHandler, int purgeEntitiesOlderThanDays)
         {
             StorageAccountConnectionString = storageAccountConnectionString;
             TableName = tableName;
             PartitionKeyHandler = partitionKeyHandler;
-            PartitionKeyFormat = partitionKeyFormat;
             PurgeEntitiesOlderThanDays = purgeEntitiesOlderThanDays;
 
             TableReference = GetTableReference(StorageAccountConnectionString, TableName);
@@ -66,24 +69,13 @@ namespace AzureTablePurger
             foreach (var partition in groupByResult.ToList())
             {
                 var partitionAsList = partition.ToList();
-                if (partitionAsList.Count > MaxBatchSize)
-                {
-                    var chunkedPartitions = Chunk(partition, MaxBatchSize);
-                    foreach (var smallerPartition in chunkedPartitions)
-                    {
-                        result.Add(smallerPartition.ToList());
-                    }
-                }
-                else
-                {
-                    result.Add(partitionAsList);
-                }
+                result.Add(partitionAsList);
             }
 
             return result;
         }
 
-        protected IEnumerable<IEnumerable<DynamicTableEntity>> Chunk(IEnumerable<DynamicTableEntity> listOfItems, int chunkSize)
+        protected IEnumerable<IEnumerable<T>> Chunk<T>(IEnumerable<T> listOfItems, int chunkSize)
         {
             while (listOfItems.Any())
             {
@@ -92,28 +84,27 @@ namespace AzureTablePurger
             }
         }
 
-        protected void WriteStartingToProcessPage(TableQuerySegment<DynamicTableEntity> page, DateTime firstResultTimestamp)
-        {
-            Console.WriteLine();
-            ConsoleHelper.WriteLineWithColor($"Got {page.Count()} results starting at timestamp {firstResultTimestamp}", ConsoleColor.Gray);
-        }
-
-        protected void WriteProgressItemQueued()
-        {
-            ConsoleHelper.WriteWithColor(".", ConsoleColor.Gray);
-        }
-
-        protected void WriteProgressItemProcessed()
-        {
-            ConsoleHelper.WriteWithColor("o", ConsoleColor.DarkGreen);
-        }
-
         protected void VerifyIsInitialized()
         {
             if (!IsInitialized)
             {
                 throw new InvalidOperationException("Must call Initialize() before using this method");
             }
+        }
+
+        protected void LogStartingToProcessPage(TableQuerySegment<DynamicTableEntity> page, DateTime firstResultTimestamp)
+        {
+            Logger.Information($"Got {page.Count()} results starting at timestamp {firstResultTimestamp}");
+        }
+
+        protected void ConsoleLogProgressItemQueued()
+        {
+            ConsoleHelper.WriteWithColor(".", ConsoleColor.Gray);
+        }
+
+        protected void ConsoleLogProgressItemProcessed()
+        {
+            ConsoleHelper.WriteWithColor("o", ConsoleColor.DarkGreen);
         }
     }
 }

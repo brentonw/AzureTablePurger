@@ -1,12 +1,19 @@
-﻿using System;
-using System.Diagnostics;
-using System.Linq;
+﻿using System.Linq;
 using Microsoft.WindowsAzure.Storage.Table;
+using Serilog;
 
 namespace AzureTablePurger
 {
-    class SimpleTablePurger : TablePurgerBase
+    /// <summary>
+    /// Simple implementation - queries for data then batches up delete operations and executes against the Table Storage API
+    /// </summary>
+    public class SimpleTablePurger : TablePurgerBase
     {
+        public SimpleTablePurger(ILogger logger)
+            :base(logger)
+        {
+        }
+
         public override void PurgeEntities(out int numEntitiesProcessed, out int numPartitionsProcessed)
         {
             VerifyIsInitialized();
@@ -18,43 +25,45 @@ namespace AzureTablePurger
             int partitionCounter = 0;
             int entityCounter = 0;
 
-            // Collect and process data
             do
             {
                 var page = TableReference.ExecuteQuerySegmented(query, continuationToken);
                 var firstResultTimestamp = PartitionKeyHandler.ConvertPartitionKeyToDateTime(page.Results.First().PartitionKey);
 
-                WriteStartingToProcessPage(page, firstResultTimestamp);
+                LogStartingToProcessPage(page, firstResultTimestamp);
 
-                var partitions = GetPartitionsFromPage(page.ToList());
+                var partitionsFromPage = GetPartitionsFromPage(page.ToList());
 
-                ConsoleHelper.WriteLineWithColor($"Broke into {partitions.Count} partitions", ConsoleColor.Gray);
+                Logger.Information($"Broke into {partitionsFromPage.Count} partitions");
 
-                foreach (var partition in partitions)
+                foreach (var partition in partitionsFromPage)
                 {
-                    Trace.WriteLine($"Processing partition {partitionCounter}");
+                    Logger.Verbose($"Processing partition {partitionCounter}");
 
-                    var batchOperation = new TableBatchOperation();
-                    int batchCounter = 0;
+                    var chunkedPartition = Chunk(partition, MaxBatchSize);
 
-                    foreach (var entity in partition)
+                    foreach (var batch in chunkedPartition)
                     {
-                        Trace.WriteLine(
-                            $"Adding entity to batch: PartitionKey={entity.PartitionKey}, RowKey={entity.RowKey}");
-                        entityCounter++;
+                        var batchOperation = new TableBatchOperation();
+                        int batchCounter = 0;
 
-                        batchOperation.Delete(entity);
-                        batchCounter++;
+                        foreach (var entity in batch)
+                        {
+                            Logger.Verbose($"Adding entity to batch: PartitionKey={entity.PartitionKey}, RowKey={entity.RowKey}");
+                            entityCounter++;
+
+                            batchOperation.Delete(entity);
+                            batchCounter++;
+                        }
+
+                        Logger.Verbose($"Added {batchCounter} items into batch");
+                        Logger.Verbose($"Executing batch delete of {batchCounter} entities");
+                        TableReference.ExecuteBatch(batchOperation);
+
+                        ConsoleLogProgressItemProcessed();
                     }
 
-                    Trace.WriteLine($"Added {batchCounter} items into batch");
-
                     partitionCounter++;
-
-                    Trace.WriteLine($"Executing batch delete of {batchCounter} entities");
-                    TableReference.ExecuteBatch(batchOperation);
-
-                    WriteProgressItemProcessed();
                 }
 
                 continuationToken = page.ContinuationToken;
