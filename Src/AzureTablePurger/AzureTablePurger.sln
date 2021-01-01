@@ -1,9 +1,15 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio 15
-VisualStudioVersion = 15.0.28010.2041
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.30330.147
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AzureTablePurger", "AzureTablePurger\AzureTablePurger.csproj", "{7C6C47B3-323B-4F6A-826C-08767E32F173}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "AzureTablePurger.App", "AzureTablePurger.App\AzureTablePurger.App.csproj", "{0E34DEC1-212E-4940-B750-8A67ADAA7E48}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "AzureTablePurger.Common", "AzureTablePurger.Common\AzureTablePurger.Common.csproj", "{B231A4CE-3291-4508-9041-960DA07C9991}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "AzureTablePurger.Services", "AzureTablePurger.Services\AzureTablePurger.Services.csproj", "{0406485B-B5F9-4351-B55A-690114AE1251}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AzureTablePurger.Services.Tests", "AzureTablePurger.Services.Tests\AzureTablePurger.Services.Tests.csproj", "{BDC715B8-A6AC-4243-91B2-D1F46D98BCDD}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -11,15 +17,27 @@ Global
 		Release|Any CPU = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{7C6C47B3-323B-4F6A-826C-08767E32F173}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{7C6C47B3-323B-4F6A-826C-08767E32F173}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{7C6C47B3-323B-4F6A-826C-08767E32F173}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{7C6C47B3-323B-4F6A-826C-08767E32F173}.Release|Any CPU.Build.0 = Release|Any CPU
+		{0E34DEC1-212E-4940-B750-8A67ADAA7E48}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0E34DEC1-212E-4940-B750-8A67ADAA7E48}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0E34DEC1-212E-4940-B750-8A67ADAA7E48}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0E34DEC1-212E-4940-B750-8A67ADAA7E48}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B231A4CE-3291-4508-9041-960DA07C9991}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B231A4CE-3291-4508-9041-960DA07C9991}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B231A4CE-3291-4508-9041-960DA07C9991}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B231A4CE-3291-4508-9041-960DA07C9991}.Release|Any CPU.Build.0 = Release|Any CPU
+		{0406485B-B5F9-4351-B55A-690114AE1251}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0406485B-B5F9-4351-B55A-690114AE1251}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0406485B-B5F9-4351-B55A-690114AE1251}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0406485B-B5F9-4351-B55A-690114AE1251}.Release|Any CPU.Build.0 = Release|Any CPU
+		{BDC715B8-A6AC-4243-91B2-D1F46D98BCDD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{BDC715B8-A6AC-4243-91B2-D1F46D98BCDD}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{BDC715B8-A6AC-4243-91B2-D1F46D98BCDD}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{BDC715B8-A6AC-4243-91B2-D1F46D98BCDD}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
-		SolutionGuid = {6D3E08B9-B739-46F4-9ADA-B85C7A0C0ECD}
+		SolutionGuid = {EF1738FC-3B14-41FA-AB10-D83F7B6CCCAD}
 	EndGlobalSection
 EndGlobal
