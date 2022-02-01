@@ -43,7 +43,7 @@ namespace AzureTablePurger.Services
 
             _logger.LogInformation($"TargetAccount={tableClient.StorageUri.PrimaryUri}, Table={table.Name}, PurgeRecordsOlderThanDays={options.PurgeRecordsOlderThanDays}");
 
-            var query = _partitionKeyHandler.GetTableQuery(options.PurgeRecordsOlderThanDays);
+            var query = _partitionKeyHandler.GetTableQuery(options.PurgeRecordsOlderThanDays, options.PartitionKeyPrefix);
             var continuationToken = new TableContinuationToken();
 
             int numPagesProcessed = 0;
@@ -64,7 +64,7 @@ namespace AzureTablePurger.Services
                     break;
                 }
 
-                var firstResultTimestamp = _partitionKeyHandler.ConvertPartitionKeyToDateTime(page.Results.First().PartitionKey);
+                var firstResultTimestamp = _partitionKeyHandler.ConvertPartitionKeyToDateTime(page.Results.First().PartitionKey, options.PartitionKeyPrefix);
                 _logger.LogInformation($"Page {pageNumber}: processing {page.Count()} results starting at timestamp {firstResultTimestamp}");
 
                 var partitionsFromPage = GetPartitionsFromPage(page.Results);

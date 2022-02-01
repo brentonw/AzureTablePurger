@@ -17,6 +17,7 @@ namespace AzureTablePurger.App
         private const string ConfigKeyTargetStorageAccountConnectionString = "TargetStorageAccountConnectionString";
         private const string ConfigKeyTargetTableName = "TargetTableName";
         private const string ConfigKeyPurgeRecordsOlderThanDays = "PurgeRecordsOlderThanDays";
+        private const string ConfigKeyPartitionKeyPrefix = "";
 
         private static ServiceProvider _serviceProvider;
         private static IConfigurationRoot _config;
@@ -39,7 +40,8 @@ namespace AzureTablePurger.App
                 {
                     TargetAccountConnectionString = _config[ConfigKeyTargetStorageAccountConnectionString],
                     TargetTableName = _config[ConfigKeyTargetTableName],
-                    PurgeRecordsOlderThanDays = int.Parse(_config[ConfigKeyPurgeRecordsOlderThanDays])
+                    PurgeRecordsOlderThanDays = int.Parse(_config[ConfigKeyPurgeRecordsOlderThanDays]),
+                    PartitionKeyPrefix = _config[ConfigKeyPartitionKeyPrefix]
                 };
 
                 var cts = new CancellationTokenSource();
@@ -62,7 +64,8 @@ namespace AzureTablePurger.App
             {
                 { "-account", ConfigKeyTargetStorageAccountConnectionString },
                 { "-table", ConfigKeyTargetTableName },
-                { "-days", ConfigKeyPurgeRecordsOlderThanDays }
+                { "-days", ConfigKeyPurgeRecordsOlderThanDays },
+                { "-partitionKeyPrefix", ConfigKeyPartitionKeyPrefix }
             };
 
             configBuilder.AddCommandLine(commandLineArgs, switchMapping);

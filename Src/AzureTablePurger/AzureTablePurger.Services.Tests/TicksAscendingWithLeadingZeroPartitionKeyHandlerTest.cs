@@ -24,7 +24,7 @@ namespace AzureTablePurger.Services.Tests
             // Arrange
 
             // Act
-            _target.ConvertPartitionKeyToDateTime(Guid.NewGuid().ToString());
+            _target.ConvertPartitionKeyToDateTime(Guid.NewGuid().ToString(), "");
 
             // Assert - handled by method attribute
         }
@@ -36,7 +36,7 @@ namespace AzureTablePurger.Services.Tests
             string upperBound = DateTime.Now.Ticks.ToString("D19");
 
             // Act
-            var query = _target.GetTableQuery(null, upperBound);
+            var query = _target.GetTableQuery(null, upperBound, "");
 
             // Assert
             Assert.AreEqual($"(PartitionKey ge '0') and (PartitionKey lt '{upperBound}')", query.FilterString);
@@ -51,7 +51,7 @@ namespace AzureTablePurger.Services.Tests
             string upperBound = DateTime.Now.Ticks.ToString("D19");
 
             // Act
-            var query = _target.GetTableQuery(lowerBound, upperBound);
+            var query = _target.GetTableQuery(lowerBound, upperBound, "");
 
             // Assert
             Assert.AreEqual($"(PartitionKey ge '{lowerBound}') and (PartitionKey lt '{upperBound}')", query.FilterString);
@@ -69,7 +69,7 @@ namespace AzureTablePurger.Services.Tests
             string firstPortionOfUpperBound = approxUpperBound.Substring(0, 6);
 
             // Act
-            var query = _target.GetTableQuery(days);
+            var query = _target.GetTableQuery(days, "");
 
             // Assert
             Assert.IsTrue(query.FilterString.Contains($"(PartitionKey ge '0') and (PartitionKey lt '{firstPortionOfUpperBound}"));
