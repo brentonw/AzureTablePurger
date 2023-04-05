@@ -26,6 +26,7 @@ namespace AzureTablePurger.App
             BuildConfig(args);
             var serviceCollection = RegisterServices();
             ConfigureLogging(serviceCollection);
+
             _serviceProvider = serviceCollection.BuildServiceProvider();
 
             await using (_serviceProvider)
@@ -77,7 +78,7 @@ namespace AzureTablePurger.App
             // Core logic
             serviceCollection.AddScoped<ITablePurger, SimpleTablePurger>();
             serviceCollection.AddScoped<IAzureStorageClientFactory, AzureStorageClientFactory>();
-            serviceCollection.AddScoped<IPartitionKeyHandler, TicksAscendingWithLeadingZeroPartitionKeyHandler>();
+            serviceCollection.AddScoped<IEntityQueryHandler, TicksAscendingWithLeadingZeroPartitionKeyHandler>();
 
             return serviceCollection;
         }
