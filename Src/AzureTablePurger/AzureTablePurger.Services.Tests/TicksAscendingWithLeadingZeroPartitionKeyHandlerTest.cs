@@ -24,7 +24,7 @@ namespace AzureTablePurger.Services.Tests
             // Arrange
 
             // Act
-            _target.ConvertPartitionKeyToDateTime(Guid.NewGuid().ToString());
+            _target.ConvertKeyToDateTime(Guid.NewGuid().ToString());
 
             // Assert - handled by method attribute
         }

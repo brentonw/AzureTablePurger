@@ -20,12 +20,12 @@ namespace AzureTablePurger.Services
 
         private readonly IAzureStorageClientFactory _storageClientFactory;
         private readonly ILogger<SimpleTablePurger> _logger;
-        private readonly IPartitionKeyHandler _partitionKeyHandler;
+        private readonly IEntityQueryHandler _rowHandler;
 
-        public SimpleTablePurger(IAzureStorageClientFactory storageClientFactory, IPartitionKeyHandler partitionKeyHandler, ILogger<SimpleTablePurger> logger)
+        public SimpleTablePurger(IAzureStorageClientFactory storageClientFactory, IEntityQueryHandler rowHandler, ILogger<SimpleTablePurger> logger)
         {
             _storageClientFactory = storageClientFactory;
-            _partitionKeyHandler = partitionKeyHandler;
+            _rowHandler = rowHandler;
             _logger = logger;
 
             ServicePointManager.DefaultConnectionLimit = ConnectionLimit;
@@ -43,7 +43,7 @@ namespace AzureTablePurger.Services
 
             _logger.LogInformation($"TargetAccount={tableClient.StorageUri.PrimaryUri}, Table={table.Name}, PurgeRecordsOlderThanDays={options.PurgeRecordsOlderThanDays}");
 
-            var query = _partitionKeyHandler.GetTableQuery(options.PurgeRecordsOlderThanDays);
+            var query = _rowHandler.GetTableQuery(options.PurgeRecordsOlderThanDays);
             var continuationToken = new TableContinuationToken();
 
             int numPagesProcessed = 0;
@@ -64,7 +64,7 @@ namespace AzureTablePurger.Services
                     break;
                 }
 
-                var firstResultTimestamp = _partitionKeyHandler.ConvertPartitionKeyToDateTime(page.Results.First().PartitionKey);
+                var firstResultTimestamp = _rowHandler.ConvertKeyToDateTime(page.Results.First());
                 _logger.LogInformation($"Page {pageNumber}: processing {page.Count()} results starting at timestamp {firstResultTimestamp}");
 
                 var partitionsFromPage = GetPartitionsFromPage(page.Results);
@@ -106,7 +106,7 @@ namespace AzureTablePurger.Services
 
             var entitiesPerSecond = numEntitiesDeleted > 0 ? (int)(numEntitiesDeleted / sw.Elapsed.TotalSeconds) : 0;
             var msPerEntity = numEntitiesDeleted > 0 ? (int)(sw.Elapsed.TotalMilliseconds / numEntitiesDeleted) : 0;
-            
+
             _logger.LogInformation($"Finished PurgeEntitiesAsync, processed {numPagesProcessed} pages and deleted {numEntitiesDeleted} entities in {sw.Elapsed} ({entitiesPerSecond} entities per second, or {msPerEntity} ms per entity)");
 
             return new Tuple<int, int>(numPagesProcessed, numEntitiesDeleted);

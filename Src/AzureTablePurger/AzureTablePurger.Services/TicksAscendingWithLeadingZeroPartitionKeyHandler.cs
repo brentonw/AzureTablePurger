@@ -5,7 +5,7 @@ using Microsoft.Extensions.Logging;
 
 namespace AzureTablePurger.Services
 {
-    public class TicksAscendingWithLeadingZeroPartitionKeyHandler : IPartitionKeyHandler
+    public class TicksAscendingWithLeadingZeroPartitionKeyHandler : IEntityQueryHandler
     {
         private readonly ILogger<TicksAscendingWithLeadingZeroPartitionKeyHandler> _logger;
 
@@ -18,6 +18,8 @@ namespace AzureTablePurger.Services
         {
             var maximumPartitionKeyToDelete = GetMaximumPartitionKeyToDelete(purgeEntitiesOlderThanDays);
 
+            _logger.LogDebug($"{nameof(DynamicTableEntity.PartitionKey)}: {purgeEntitiesOlderThanDays}");
+
             return GetTableQuery(null, maximumPartitionKeyToDelete);
         }
 
@@ -28,22 +30,30 @@ namespace AzureTablePurger.Services
                 lowerBoundPartitionKey = "0";
             }
 
-            var lowerBoundDateTime = ConvertPartitionKeyToDateTime(lowerBoundPartitionKey);
-            var upperBoundDateTime = ConvertPartitionKeyToDateTime(upperBoundPartitionKey);
-            _logger.LogDebug($"Generating table query: lowerBound partitionKey={lowerBoundPartitionKey} ({lowerBoundDateTime}), upperBound partitionKey={upperBoundPartitionKey} ({upperBoundDateTime})");
+            var lowerBoundDateTime = ConvertKeyToDateTime(lowerBoundPartitionKey);
+            var upperBoundDateTime = ConvertKeyToDateTime(upperBoundPartitionKey);
+            _logger.LogDebug($"Generating table query: lowerBound {nameof(DynamicTableEntity.PartitionKey)}={lowerBoundPartitionKey} ({lowerBoundDateTime}), upperBound {nameof(DynamicTableEntity.PartitionKey)}={upperBoundPartitionKey} ({upperBoundDateTime})");
 
-            var lowerBound = TableQuery.GenerateFilterCondition("PartitionKey", QueryComparisons.GreaterThanOrEqual, lowerBoundPartitionKey);
-            var upperBound = TableQuery.GenerateFilterCondition("PartitionKey", QueryComparisons.LessThan, upperBoundPartitionKey);
+            var lowerBound = TableQuery.GenerateFilterCondition(nameof(DynamicTableEntity.PartitionKey), QueryComparisons.GreaterThanOrEqual, lowerBoundPartitionKey);
+            var upperBound = TableQuery.GenerateFilterCondition(nameof(DynamicTableEntity.PartitionKey), QueryComparisons.LessThan, upperBoundPartitionKey);
             var combinedFilter = TableQuery.CombineFilters(lowerBound, TableOperators.And, upperBound);
 
             var query = new TableQuery()
                 .Where(combinedFilter)
-                .Select(new[] { "PartitionKey", "RowKey" });
+                .Select(new[] { nameof(DynamicTableEntity.PartitionKey), nameof(DynamicTableEntity.RowKey) });
+
+            _logger.LogInformation($"Query : {query}");
 
             return query;
         }
 
-        public DateTime ConvertPartitionKeyToDateTime(string partitionKey)
+
+        public DateTime ConvertKeyToDateTime(DynamicTableEntity entry)
+        {
+            return ConvertKeyToDateTime(entry.PartitionKey);
+        }
+
+        public DateTime ConvertKeyToDateTime(string partitionKey)
         {
             var result = long.TryParse(partitionKey, out long ticks);
 
